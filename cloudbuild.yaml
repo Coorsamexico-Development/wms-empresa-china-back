@@ -16,7 +16,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/wms-backend:latest']
 
-  # 3. Deploy Backend to Cloud Run
+  # 3. Deploy Backend to Cloud Run con Cloud SQL
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
@@ -27,7 +27,9 @@ steps:
       - '--region=us-central1'
       - '--platform=managed'
       - '--allow-unauthenticated'
-      - '--set-env-vars=NODE_ENV=production,PORT=4000,GCS_BUCKET_NAME=wms-empresa-china-evidencias'
+      - '--port=4000'
+      - '--add-cloudsql-instances=$PROJECT_ID:us-central1:coorsamexico'
+      - '--set-env-vars=NODE_ENV=production,DB_SOCKET_PATH=/cloudsql/$PROJECT_ID:us-central1:coorsamexico,DB_USER=wms_china_user,DB_PASSWORD=WmsCoorsa2026!,DB_NAME=wms-empresa-china,GCS_BUCKET_NAME=wms-empresa-china-evidencias'
 
 images:
   - 'gcr.io/$PROJECT_ID/wms-backend:$COMMIT_SHA'
