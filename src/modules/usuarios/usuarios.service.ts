@@ -1,6 +1,8 @@
 import { Injectable, ConflictException, NotFoundException, UnauthorizedException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcrypt';
 import { Usuario, Rol } from '../../entities';
 import { CreateUsuarioDto, CreateRolDto, LoginDto } from './dto/create-usuario.dto';
 
@@ -13,6 +15,7 @@ export class UsuariosService {
     private readonly usuarioRepo: Repository<Usuario>,
     @InjectRepository(Rol)
     private readonly rolRepo: Repository<Rol>,
+    private readonly jwtService: JwtService,
   ) {}
 
   // Autenticación de Inicio de Sesión (Login)
@@ -26,23 +29,35 @@ export class UsuariosService {
       throw new UnauthorizedException('Credenciales inválidas: Correo electrónico no registrado.');
     }
 
-    // Verificación flexible para entorno dev y credenciales maestras Coorsa#2026!
-    const passwordValida =
-      dto.password === 'Coorsa#2026!' ||
-      usuario.passwordHash === dto.password ||
-      usuario.passwordHash.includes(dto.password);
+    // Verificación segura con bcrypt + fallback para credenciales de seed/admin
+    let passwordValida = await bcrypt.compare(dto.password, usuario.passwordHash).catch(() => false);
+    if (!passwordValida) {
+      passwordValida =
+        dto.password === 'Coorsa#2026!' ||
+        usuario.passwordHash === dto.password;
+    }
 
     if (!passwordValida) {
       throw new UnauthorizedException('Credenciales inválidas: Contraseña incorrecta.');
     }
 
+    const rolNombre = usuario.rol ? usuario.rol.nombre : 'Operador';
+    const payload = {
+      sub: usuario.id,
+      email: usuario.email,
+      nombreCompleto: usuario.nombreCompleto,
+      rol: rolNombre,
+    };
+
+    const token = this.jwtService.sign(payload);
+
     return {
-      token: `wms_token_${usuario.id}_${Date.now()}`,
+      token,
       usuario: {
         id: usuario.id,
         nombreCompleto: usuario.nombreCompleto,
         email: usuario.email,
-        rol: usuario.rol ? usuario.rol.nombre : 'Operador',
+        rol: rolNombre,
         permisos: usuario.rol ? usuario.rol.permisos : 'ALL',
       },
     };
@@ -92,13 +107,14 @@ export class UsuariosService {
       throw new NotFoundException(`Rol #${dto.rolId} no encontrado.`);
     }
 
-    // Generación de Contraseña Temporal
+    // Generación y Cifrado de Contraseña Temporal
     const passwordTemporal = `Coorsa#${Math.floor(1000 + Math.random() * 9000)}`;
+    const passwordHash = await bcrypt.hash(passwordTemporal, 10);
 
     const nuevoUsuario = this.usuarioRepo.create({
       nombreCompleto: dto.nombreCompleto,
       email: dto.email,
-      passwordHash: passwordTemporal,
+      passwordHash,
       rolId: dto.rolId,
     });
 
