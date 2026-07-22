@@ -50,7 +50,10 @@ const entities = [
         password: process.env.DB_PASSWORD || 'wms_password',
         database: process.env.DB_NAME || 'wms_db',
         entities,
-        synchronize: true, // Auto-creación de tablas en entorno dev
+        synchronize: true,
+        retryAttempts: 5,
+        retryDelay: 3000,
+        autoLoadEntities: true,
       }),
     }),
     TypeOrmModule.forFeature(entities),

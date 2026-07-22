@@ -16,7 +16,8 @@ export class SeedService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    this.logger.log('Verificando y ejecutando semillas de base de datos...');
+    try {
+      this.logger.log('Verificando y ejecutando semillas de base de datos...');
 
     // 1. Poblado de Roles y Permisos Básicos Estándar WMS
     const rolesPredefinidos = [
@@ -119,6 +120,9 @@ export class SeedService implements OnModuleInit {
         { sku: 'SKU-ELEC-004', descripcion: 'Monitor Gamer 27" Curved 165Hz', cliente: 'COORSA' },
       ]);
       this.logger.log('Maestro de Materiales demo poblado.');
+    }
+    } catch (err) {
+      this.logger.warn(`No se pudo sincronizar las semillas de base de datos en el inicio: ${err.message}`);
     }
   }
 }
