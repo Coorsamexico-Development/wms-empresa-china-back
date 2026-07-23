@@ -16,8 +16,12 @@ export class DashboardService {
     private readonly salidaRepo: Repository<SalidaDespacho>,
   ) {}
 
-  // Consulta Avanzada de KPIs y Analítica por Meses
-  async obtenerKpis(anioMesParam?: string) {
+  // Consulta Avanzada de KPIs y Analítica por Día, Semana o Mes
+  async obtenerKpis(anioMesParam?: string, periodoParam: string = 'mes') {
+    const periodo = ['dia', 'semana', 'mes'].includes(periodoParam?.toLowerCase())
+      ? periodoParam.toLowerCase()
+      : 'mes';
+
     const totalRecepciones = await this.recepcionRepo.count();
     const recepcionesEnDescarga = await this.recepcionRepo.count({ where: { estado: 'EN_DESCARGA' } });
 
@@ -60,7 +64,6 @@ export class DashboardService {
     const totalSalidas = salidasResult?.total ? parseInt(salidasResult.total, 10) : 0;
     const existencias = totalEntradas - totalSalidas;
 
-    // Generar analítica de los últimos 6 meses
     const hoy = new Date();
     const historicoMensual: {
       mesKey: string;
@@ -74,49 +77,144 @@ export class DashboardService {
 
     const nombresMeses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
-      const year = d.getFullYear();
-      const month = d.getMonth() + 1;
-      const monthStr = month < 10 ? `0${month}` : `${month}`;
-      const mesKey = `${year}-${monthStr}`;
-      const labelMes = `${nombresMeses[d.getMonth()]} ${year}`;
+    if (periodo === 'dia') {
+      // ÚLTIMOS 14 DÍAS
+      for (let i = 13; i >= 0; i--) {
+        const d = new Date(hoy.getTime() - i * 24 * 60 * 60 * 1000);
+        const y = d.getFullYear();
+        const m = d.getMonth() + 1;
+        const day = d.getDate();
+        const mStr = m < 10 ? `0${m}` : `${m}`;
+        const dayStr = day < 10 ? `0${day}` : `${day}`;
+        const mesKey = `${y}-${mStr}-${dayStr}`;
+        const labelMes = `${day} ${nombresMeses[d.getMonth()]}`;
 
-      const resEntradasMes = await this.detalleRepo
-        .createQueryBuilder('dt')
-        .innerJoin('dt.tarima', 't')
-        .select('SUM(dt.cantidadCajas)', 'totalCajas')
-        .addSelect('COUNT(DISTINCT t.id)', 'totalTarimas')
-        .where('DATE_FORMAT(t.fechaCreacion, "%Y-%m") = :mesKey', { mesKey })
-        .andWhere('t.eliminado_en IS NULL')
-        .andWhere('dt.eliminado_en IS NULL')
-        .getRawOne();
+        const resEntradas = await this.detalleRepo
+          .createQueryBuilder('dt')
+          .innerJoin('dt.tarima', 't')
+          .select('SUM(dt.cantidadCajas)', 'totalCajas')
+          .addSelect('COUNT(DISTINCT t.id)', 'totalTarimas')
+          .where('DATE_FORMAT(t.fechaCreacion, "%Y-%m-%d") = :mesKey', { mesKey })
+          .andWhere('t.eliminado_en IS NULL')
+          .andWhere('dt.eliminado_en IS NULL')
+          .getRawOne();
 
-      const resSalidasMes = await this.detalleRepo
-        .createQueryBuilder('dt')
-        .innerJoin('dt.tarima', 't')
-        .select('SUM(dt.cantidadCajas)', 'totalCajas')
-        .addSelect('COUNT(DISTINCT t.id)', 'totalTarimas')
-        .where('t.estado = :estado AND DATE_FORMAT(t.fechaCreacion, "%Y-%m") = :mesKey', { estado: 'DESPACHADO', mesKey })
-        .andWhere('t.eliminado_en IS NULL')
-        .andWhere('dt.eliminado_en IS NULL')
-        .getRawOne();
+        const resSalidas = await this.detalleRepo
+          .createQueryBuilder('dt')
+          .innerJoin('dt.tarima', 't')
+          .select('SUM(dt.cantidadCajas)', 'totalCajas')
+          .addSelect('COUNT(DISTINCT t.id)', 'totalTarimas')
+          .where('t.estado = :estado AND DATE_FORMAT(t.fechaCreacion, "%Y-%m-%d") = :mesKey', { estado: 'DESPACHADO', mesKey })
+          .andWhere('t.eliminado_en IS NULL')
+          .andWhere('dt.eliminado_en IS NULL')
+          .getRawOne();
 
-      const entCajas = resEntradasMes?.totalCajas ? parseInt(resEntradasMes.totalCajas, 10) : 0;
-      const entTarimas = resEntradasMes?.totalTarimas ? parseInt(resEntradasMes.totalTarimas, 10) : 0;
-      const salCajas = resSalidasMes?.totalCajas ? parseInt(resSalidasMes.totalCajas, 10) : 0;
-      const salTarimas = resSalidasMes?.totalTarimas ? parseInt(resSalidasMes.totalTarimas, 10) : 0;
-      const ocuCajas = Math.max(0, entCajas - salCajas);
+        const entCajas = resEntradas?.totalCajas ? parseInt(resEntradas.totalCajas, 10) : 0;
+        const entTarimas = resEntradas?.totalTarimas ? parseInt(resEntradas.totalTarimas, 10) : 0;
+        const salCajas = resSalidas?.totalCajas ? parseInt(resSalidas.totalCajas, 10) : 0;
+        const salTarimas = resSalidas?.totalTarimas ? parseInt(resSalidas.totalTarimas, 10) : 0;
 
-      historicoMensual.push({
-        mesKey,
-        labelMes,
-        entradasCajas: entCajas,
-        entradasTarimas: entTarimas,
-        salidasCajas: salCajas,
-        salidasTarimas: salTarimas,
-        ocupacionCajas: ocuCajas,
-      });
+        historicoMensual.push({
+          mesKey,
+          labelMes,
+          entradasCajas: entCajas,
+          entradasTarimas: entTarimas,
+          salidasCajas: salCajas,
+          salidasTarimas: salTarimas,
+          ocupacionCajas: Math.max(0, entCajas - salCajas),
+        });
+      }
+    } else if (periodo === 'semana') {
+      // ÚLTIMAS 8 SEMANAS
+      for (let i = 7; i >= 0; i--) {
+        const d = new Date(hoy.getTime() - i * 7 * 24 * 60 * 60 * 1000);
+        const firstDayOfYear = new Date(d.getFullYear(), 0, 1);
+        const pastDaysOfYear = (d.getTime() - firstDayOfYear.getTime()) / 86400000;
+        const weekNum = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+        const weekStr = weekNum < 10 ? `0${weekNum}` : `${weekNum}`;
+        const mesKey = `${d.getFullYear()}-${weekStr}`;
+        const labelMes = `Sem ${weekNum}`;
+
+        const resEntradas = await this.detalleRepo
+          .createQueryBuilder('dt')
+          .innerJoin('dt.tarima', 't')
+          .select('SUM(dt.cantidadCajas)', 'totalCajas')
+          .addSelect('COUNT(DISTINCT t.id)', 'totalTarimas')
+          .where('DATE_FORMAT(t.fechaCreacion, "%Y-%u") = :mesKey', { mesKey })
+          .andWhere('t.eliminado_en IS NULL')
+          .andWhere('dt.eliminado_en IS NULL')
+          .getRawOne();
+
+        const resSalidas = await this.detalleRepo
+          .createQueryBuilder('dt')
+          .innerJoin('dt.tarima', 't')
+          .select('SUM(dt.cantidadCajas)', 'totalCajas')
+          .addSelect('COUNT(DISTINCT t.id)', 'totalTarimas')
+          .where('t.estado = :estado AND DATE_FORMAT(t.fechaCreacion, "%Y-%u") = :mesKey', { estado: 'DESPACHADO', mesKey })
+          .andWhere('t.eliminado_en IS NULL')
+          .andWhere('dt.eliminado_en IS NULL')
+          .getRawOne();
+
+        const entCajas = resEntradas?.totalCajas ? parseInt(resEntradas.totalCajas, 10) : 0;
+        const entTarimas = resEntradas?.totalTarimas ? parseInt(resEntradas.totalTarimas, 10) : 0;
+        const salCajas = resSalidas?.totalCajas ? parseInt(resSalidas.totalCajas, 10) : 0;
+        const salTarimas = resSalidas?.totalTarimas ? parseInt(resSalidas.totalTarimas, 10) : 0;
+
+        historicoMensual.push({
+          mesKey,
+          labelMes,
+          entradasCajas: entCajas,
+          entradasTarimas: entTarimas,
+          salidasCajas: salCajas,
+          salidasTarimas: salTarimas,
+          ocupacionCajas: Math.max(0, entCajas - salCajas),
+        });
+      }
+    } else {
+      // ÚLTIMOS 6 MESES (MES)
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
+        const year = d.getFullYear();
+        const month = d.getMonth() + 1;
+        const monthStr = month < 10 ? `0${month}` : `${month}`;
+        const mesKey = `${year}-${monthStr}`;
+        const labelMes = `${nombresMeses[d.getMonth()]} ${year}`;
+
+        const resEntradasMes = await this.detalleRepo
+          .createQueryBuilder('dt')
+          .innerJoin('dt.tarima', 't')
+          .select('SUM(dt.cantidadCajas)', 'totalCajas')
+          .addSelect('COUNT(DISTINCT t.id)', 'totalTarimas')
+          .where('DATE_FORMAT(t.fechaCreacion, "%Y-%m") = :mesKey', { mesKey })
+          .andWhere('t.eliminado_en IS NULL')
+          .andWhere('dt.eliminado_en IS NULL')
+          .getRawOne();
+
+        const resSalidasMes = await this.detalleRepo
+          .createQueryBuilder('dt')
+          .innerJoin('dt.tarima', 't')
+          .select('SUM(dt.cantidadCajas)', 'totalCajas')
+          .addSelect('COUNT(DISTINCT t.id)', 'totalTarimas')
+          .where('t.estado = :estado AND DATE_FORMAT(t.fechaCreacion, "%Y-%m") = :mesKey', { estado: 'DESPACHADO', mesKey })
+          .andWhere('t.eliminado_en IS NULL')
+          .andWhere('dt.eliminado_en IS NULL')
+          .getRawOne();
+
+        const entCajas = resEntradasMes?.totalCajas ? parseInt(resEntradasMes.totalCajas, 10) : 0;
+        const entTarimas = resEntradasMes?.totalTarimas ? parseInt(resEntradasMes.totalTarimas, 10) : 0;
+        const salCajas = resSalidasMes?.totalCajas ? parseInt(resSalidasMes.totalCajas, 10) : 0;
+        const salTarimas = resSalidasMes?.totalTarimas ? parseInt(resSalidasMes.totalTarimas, 10) : 0;
+
+        historicoMensual.push({
+          mesKey,
+          labelMes,
+          entradasCajas: entCajas,
+          entradasTarimas: entTarimas,
+          salidasCajas: salCajas,
+          salidasTarimas: salTarimas,
+          ocupacionCajas: Math.max(0, entCajas - salCajas),
+        });
+      }
     }
 
     return {

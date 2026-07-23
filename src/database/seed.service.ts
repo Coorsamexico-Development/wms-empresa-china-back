@@ -305,7 +305,7 @@ export class SeedService implements OnModuleInit {
         await this.detalleSalidaRepo.save({
           salidaId: sal1.id,
           tarimaId: t1_1.id,
-          despachadoPor: defaultUser.id,
+          registradoPor: defaultUser.id,
         });
 
         const sal2 = await this.salidaRepo.save(
